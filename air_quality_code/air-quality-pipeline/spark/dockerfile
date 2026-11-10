@@ -1,0 +1,12 @@
+FROM apache/spark:3.5.0
+
+USER root
+
+WORKDIR /iacd_project
+
+COPY spark_job.py .
+
+RUN pip install --no-cache-dir pyspark kafka-python psycopg2-binary
+
+CMD ["spark-submit", "/iacd_project/spark_job.py"]
+

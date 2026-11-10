@@ -1,0 +1,10 @@
+FROM python:3.12
+
+WORKDIR /iacd_project
+
+COPY kafka_code/ .
+
+RUN pip install --no-cache-dir -r kafka_requirements.txt
+
+CMD ["python", "producer.py"]
+

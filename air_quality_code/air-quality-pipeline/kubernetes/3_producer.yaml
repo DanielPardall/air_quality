@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: producer
+  namespace: project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: producer
+  template:
+    metadata:
+      labels:
+        app: producer
+    spec:
+      containers:
+        - name: producer
+          image: kafka-producer:latest
+          env:
+            - name: KAFKA_BROKER
+              value: "kafka-0.kafka:9092"
+          imagePullPolicy: IfNotPresent

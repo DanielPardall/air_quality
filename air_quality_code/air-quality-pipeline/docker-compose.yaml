@@ -1,0 +1,107 @@
+networks:
+  iacd_network:
+    driver: bridge
+
+volumes:
+  kafka_data:
+  pgdata:
+  grafana_data:
+
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    networks:
+      - iacd_network
+    environment:
+      POSTGRES_USER: iacd_user
+      POSTGRES_PASSWORD: iacd_pass
+      POSTGRES_DB: air_quality_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iacd_user -d air_quality_db"]
+      interval: 5s
+      retries: 15
+
+  ###########################################################################
+  # Kafka KRaft
+  ###########################################################################
+  kafka:
+    image: apache/kafka:3.7.1
+    container_name: kafka
+    networks:
+      - iacd_network
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_CLUSTER_ID: "bXlfY2x1c3Rlcl9pZA=="
+    command: sh -c "sleep 10 && /opt/kafka/bin/kafka-topics.sh --create --topic air_quality --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 || true"
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/0.0.0.0/9092' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+
+  producer:
+    build: ./kafka_app
+    container_name: kafka-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - iacd_network
+    environment:
+      KAFKA_BROKER: kafka:9092
+    restart: always
+
+
+  spark:
+    build: ./spark
+    container_name: spark-job
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - iacd_network
+    environment:
+      KAFKA_BROKER: kafka:9092
+      POSTGRES_HOST: postgres
+    command: spark-submit  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.1   /iacd_project/spark_job.py
+    restart: on-failure
+
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - iacd_network
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+
